@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,17 +10,89 @@ import {
   Calendar, 
   Users, 
   TrendingUp,
-  Filter,
   Mail,
-  Phone
+  Phone,
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
-import { subscribers, streamingServices, getServiceColor, getStatusColor } from '../data/mock';
+import { subscribersApi, statsApi, messagesApi, servicesApi } from '../api/api';
+import { getServiceColor, getStatusColor } from '../data/mock';
+import { useToast } from '../hooks/use-toast';
+import AddSubscriberModal from './AddSubscriberModal';
 
 const Dashboard = () => {
+  // State management
+  const [subscribers, setSubscribers] = useState([]);
+  const [stats, setStats] = useState({ total: 0, expiring: 0, active: 0, revenue: 0 });
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sendingMessage, setSendingMessage] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterService, setFilterService] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
 
+  const { toast } = useToast();
+
+  // Load initial data
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [subscribersResponse, statsResponse, servicesResponse] = await Promise.all([
+        subscribersApi.getAll(),
+        statsApi.get(),
+        servicesApi.getAll()
+      ]);
+      
+      setSubscribers(subscribersResponse.subscribers || []);
+      setStats(statsResponse);
+      setServices(servicesResponse.services || []);
+      
+    } catch (err) {
+      console.error('Error loading data:', err);
+      setError('Error al cargar los datos. Por favor, intenta de nuevo.');
+      toast({
+        title: "Error",
+        description: "Error al cargar los datos. Por favor, intenta de nuevo.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshData = async () => {
+    try {
+      setRefreshing(true);
+      await loadInitialData();
+      toast({
+        title: "Éxito",
+        description: "Datos actualizados correctamente.",
+        variant: "default"
+      });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Error al actualizar los datos.",
+        variant: "destructive"
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Filter subscribers
   const filteredSubscribers = useMemo(() => {
     return subscribers.filter(sub => {
       const matchesSearch = sub.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -35,22 +107,90 @@ const Dashboard = () => {
       
       return matchesSearch && matchesService && matchesStatus;
     });
-  }, [searchTerm, filterService, filterStatus]);
+  }, [subscribers, searchTerm, filterService, filterStatus]);
 
-  const stats = useMemo(() => {
-    const total = subscribers.length;
-    const expiring = subscribers.filter(sub => sub.daysRemaining <= 7).length;
-    const active = subscribers.filter(sub => sub.daysRemaining > 7).length;
-    const revenue = subscribers.length * 15; // Assuming $15 per subscription
-    
-    return { total, expiring, active, revenue };
-  }, []);
-
-  const handleSendMessage = (subscriber, type) => {
-    // Mock function - will be replaced with actual API call
-    console.log(`Sending ${type} message to ${subscriber.name} (${subscriber.phone})`);
-    alert(`Mensaje ${type} enviado a ${subscriber.name}`);
+  // Send message handler
+  const handleSendMessage = async (subscriber, messageType) => {
+    try {
+      setSendingMessage(`${subscriber.id}-${messageType}`);
+      
+      const messageData = {
+        subscriberId: subscriber.id,
+        messageType: messageType
+      };
+      
+      const response = await messagesApi.send(messageData);
+      
+      toast({
+        title: "Mensaje enviado",
+        description: response.message,
+        variant: "default"
+      });
+      
+    } catch (err) {
+      console.error('Error sending message:', err);
+      toast({
+        title: "Error",
+        description: "Error al enviar el mensaje. Por favor, intenta de nuevo.",
+        variant: "destructive"
+      });
+    } finally {
+      setSendingMessage(null);
+    }
   };
+
+  // Add subscriber handler
+  const handleAddSubscriber = async (subscriberData) => {
+    try {
+      await subscribersApi.create(subscriberData);
+      
+      toast({
+        title: "Éxito",
+        description: "Suscriptor agregado correctamente.",
+        variant: "default"
+      });
+      
+      // Refresh data
+      await loadInitialData();
+      setIsModalOpen(false);
+      
+    } catch (err) {
+      console.error('Error creating subscriber:', err);
+      toast({
+        title: "Error",
+        description: "Error al agregar el suscriptor. Por favor, verifica los datos.",
+        variant: "destructive"
+      });
+      throw err; // Re-throw to handle in modal
+    }
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+          <p className="text-slate-600">Cargando datos...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4 text-center">
+          <AlertCircle className="h-8 w-8 text-red-600" />
+          <p className="text-slate-600">{error}</p>
+          <Button onClick={loadInitialData} className="bg-emerald-600 hover:bg-emerald-700">
+            Reintentar
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
@@ -63,10 +203,24 @@ const Dashboard = () => {
             </h1>
             <p className="text-slate-600 mt-1">Gestiona tus suscriptores de streaming</p>
           </div>
-          <Button className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-lg">
-            <Plus className="w-4 h-4 mr-2" />
-            Nuevo Suscriptor
-          </Button>
+          <div className="flex gap-3">
+            <Button 
+              variant="outline" 
+              onClick={refreshData}
+              disabled={refreshing}
+              className="border-slate-300"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
+            <Button 
+              onClick={() => setIsModalOpen(true)}
+              className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-lg"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nuevo Suscriptor
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -78,7 +232,7 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-900">{stats.total}</div>
-              <p className="text-xs text-blue-600 mt-1">Usuarios activos</p>
+              <p className="text-xs text-blue-600 mt-1">Usuarios registrados</p>
             </CardContent>
           </Card>
 
@@ -137,7 +291,7 @@ const Dashboard = () => {
                   className="px-4 py-2 border border-slate-200 rounded-md focus:border-emerald-500 focus:ring-emerald-500"
                 >
                   <option value="all">Todos los servicios</option>
-                  {streamingServices.map(service => (
+                  {services.map(service => (
                     <option key={service} value={service}>{service}</option>
                   ))}
                 </select>
@@ -209,18 +363,28 @@ const Dashboard = () => {
                             size="sm"
                             variant="outline"
                             onClick={() => handleSendMessage(subscriber, 'recordatorio')}
+                            disabled={sendingMessage === `${subscriber.id}-recordatorio`}
                             className="border-blue-200 text-blue-700 hover:bg-blue-50"
                           >
-                            <MessageCircle className="w-3 h-3 mr-1" />
+                            {sendingMessage === `${subscriber.id}-recordatorio` ? (
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                              <MessageCircle className="w-3 h-3 mr-1" />
+                            )}
                             Recordatorio
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleSendMessage(subscriber, 'vencimiento')}
+                            disabled={sendingMessage === `${subscriber.id}-vencimiento`}
                             className="border-orange-200 text-orange-700 hover:bg-orange-50"
                           >
-                            <Calendar className="w-3 h-3 mr-1" />
+                            {sendingMessage === `${subscriber.id}-vencimiento` ? (
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                              <Calendar className="w-3 h-3 mr-1" />
+                            )}
                             Vencimiento
                           </Button>
                         </div>
@@ -230,9 +394,23 @@ const Dashboard = () => {
                 </tbody>
               </table>
             </div>
+            
+            {filteredSubscribers.length === 0 && (
+              <div className="text-center py-8 text-slate-500">
+                No se encontraron suscriptores que coincidan con los filtros.
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Add Subscriber Modal */}
+      <AddSubscriberModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleAddSubscriber}
+        services={services}
+      />
     </div>
   );
 };
