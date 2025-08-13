@@ -64,8 +64,16 @@ class Database:
                 daysRemaining=days_remaining
             )
             
-            # Insert into database
-            result = await self.db.subscribers.insert_one(subscriber.dict())
+            # Insert into database - convert date objects to strings for MongoDB
+            subscriber_dict = subscriber.dict()
+            if 'expirationDate' in subscriber_dict:
+                subscriber_dict['expirationDate'] = subscriber_dict['expirationDate'].isoformat()
+            if 'createdAt' in subscriber_dict:
+                subscriber_dict['createdAt'] = subscriber_dict['createdAt'].isoformat()
+            if 'updatedAt' in subscriber_dict:
+                subscriber_dict['updatedAt'] = subscriber_dict['updatedAt'].isoformat()
+            
+            result = await self.db.subscribers.insert_one(subscriber_dict)
             
             if result.inserted_id:
                 logger.info(f"Created subscriber: {subscriber.name}")
