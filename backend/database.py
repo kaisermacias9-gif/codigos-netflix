@@ -92,6 +92,14 @@ class Database:
             subscribers = []
             
             async for doc in cursor:
+                # Convert string dates back to date objects if needed
+                if isinstance(doc['expirationDate'], str):
+                    doc['expirationDate'] = datetime.fromisoformat(doc['expirationDate']).date()
+                if isinstance(doc.get('createdAt'), str):
+                    doc['createdAt'] = datetime.fromisoformat(doc['createdAt'])
+                if isinstance(doc.get('updatedAt'), str):
+                    doc['updatedAt'] = datetime.fromisoformat(doc['updatedAt'])
+                
                 # Recalculate status and days remaining
                 days_remaining = self.calculate_days_remaining(doc['expirationDate'])
                 status = self.calculate_status(days_remaining)
@@ -107,7 +115,7 @@ class Database:
                     {'$set': {
                         'daysRemaining': days_remaining,
                         'status': status,
-                        'updatedAt': datetime.utcnow()
+                        'updatedAt': datetime.utcnow().isoformat()
                     }}
                 )
                 
