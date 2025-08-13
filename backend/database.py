@@ -176,6 +176,12 @@ class Database:
                 update_dict['daysRemaining'] = days_remaining
                 update_dict['status'] = status
             
+            # Convert date objects to strings for MongoDB
+            if 'expirationDate' in update_dict:
+                update_dict['expirationDate'] = update_dict['expirationDate'].isoformat()
+            if 'updatedAt' in update_dict:
+                update_dict['updatedAt'] = update_dict['updatedAt'].isoformat()
+            
             # Update in database
             result = await self.db.subscribers.update_one(
                 {'id': subscriber_id},
